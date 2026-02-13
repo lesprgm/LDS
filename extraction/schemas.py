@@ -1,5 +1,3 @@
-"""Pydantic schemas for structured LLM extraction output."""
-
 from typing import Optional
 
 from pydantic import BaseModel, Field

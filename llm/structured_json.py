@@ -1,5 +1,3 @@
-"""Helpers for LLM calls that must return JSON."""
-
 from __future__ import annotations
 
 import json

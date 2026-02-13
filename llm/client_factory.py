@@ -1,5 +1,3 @@
-"""LangChain client creation (provider-agnostic)."""
-
 from __future__ import annotations
 
 from config.settings import LLM_API_KEY, LLM_MODEL, LLM_PROVIDER, LLM_BASE_URL

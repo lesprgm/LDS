@@ -1,5 +1,3 @@
-"""LangChain-based settlement document extraction."""
-
 import logging
 from pathlib import Path
 from typing import Optional
