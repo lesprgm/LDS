@@ -36,7 +36,8 @@ LLM-assisted reasoning.
 
 1. A settlement document is normalized to plain text and mapped into `SettlementRules`.
 2. A candidate business and settlement are passed to the verification agent.
-3. Four research tools run concurrently (website, platform, general context, reviews).
+3. Five research tools run concurrently (website, Wayback archive continuity, platform, general context, reviews).
+   - Wayback check uses `web.archive.org/cdx/search/cdx` and treats earliest matching business-identity capture as stronger than oldest domain capture.
 4. Tool findings are consolidated into one reasoning prompt.
 5. The LLM returns a typed `VerificationResult` through schema-validated JSON parsing.
 6. Evidence-pack generation produces two artifacts:
@@ -61,6 +62,7 @@ flowchart LR
 - Typed boundaries: extraction and verification outputs are Pydantic models.
 - Fail-soft behavior: tool failures are captured as findings instead of crashing flow.
 - Explicit concurrency limits: async fan-out uses bounded helpers, not unbounded gather.
+- Temporal identity safeguards: archive checks account for possible domain reuse/owner changes.
 - Separation of concerns: search/tooling, LLM reasoning, and rendering are decoupled.
 - Dual-audience output: same core signals feed both client-safe and internal artifacts.
 
