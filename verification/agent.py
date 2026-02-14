@@ -1,5 +1,3 @@
-"""Verification agent — orchestrates parallel research and LLM reasoning."""
-
 from __future__ import annotations
 
 import logging
@@ -11,6 +9,7 @@ from llm.structured_json import ainvoke_pydantic
 from verification.schemas import SubAgentFinding, VerificationResult
 from verification.tools import (
     check_business_website,
+    check_wayback_history,
     check_review_presence,
     search_general_context,
     search_platform_presence,
@@ -82,6 +81,7 @@ async def verify_candidate(
 
     checks_performed: list[str] = [
         "business_website",
+        "wayback_archive",
         "platform_search",
         "general_search",
         "review_search",
@@ -89,6 +89,7 @@ async def verify_candidate(
 
     tasks = [
         check_business_website(biz_website, settlement_context),
+        check_wayback_history(biz_name, biz_city, biz_website),
         search_platform_presence(biz_name, biz_city, settlement_context),
         search_general_context(biz_name, biz_city),
         check_review_presence(biz_name, biz_city),

@@ -1,8 +1,8 @@
-"""Research tools for the verification agent."""
-
 import asyncio
 import logging
 import re
+from datetime import datetime
+from urllib.parse import urlparse
 
 import httpx
 
@@ -28,6 +28,21 @@ _ALT_HEADERS = {
 }
 _TIMEOUT = httpx.Timeout(12.0, connect=8.0)
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_WAYBACK_TIMEOUT = httpx.Timeout(20.0, connect=8.0)
+_WAYBACK_CDX_URL = "https://web.archive.org/cdx/search/cdx"
+_WAYBACK_VIEW_BASE = "https://web.archive.org/web"
+_OWNER_CHANGE_MARKERS = (
+    "under new ownership",
+    "new ownership",
+    "formerly",
+    "now known as",
+    "rebranded",
+    "acquired",
+)
+_TOKEN_STOPWORDS = {
+    "the", "and", "for", "with", "from", "into", "your", "you", "our",
+    "llc", "inc", "co", "company", "ltd", "group", "services", "service",
+}
 
 
 def _extract_text(html: str, max_chars: int = 4000) -> str:
@@ -37,6 +52,71 @@ def _extract_text(html: str, max_chars: int = 4000) -> str:
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_chars]
+
+
+def _domain_from_website(website_url: str) -> str:
+    """Normalize a website URL to a bare host."""
+    url = website_url.strip()
+    if not url:
+        return ""
+    if "://" not in url:
+        url = f"https://{url}"
+    try:
+        host = urlparse(url).netloc.lower()
+    except Exception:
+        return ""
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def _wayback_iso_date(timestamp: str) -> str | None:
+    """Convert Wayback timestamp YYYYMMDDhhmmss to ISO date."""
+    if not timestamp:
+        return None
+    try:
+        return datetime.strptime(timestamp[:14], "%Y%m%d%H%M%S").date().isoformat()
+    except ValueError:
+        return None
+
+
+def _sample_wayback_rows(rows: list[list[str]], max_samples: int = 8) -> list[list[str]]:
+    """Sample chronological rows while preserving earliest/latest captures."""
+    if len(rows) <= max_samples:
+        return rows
+    idxs = {0, 1, min(2, len(rows) - 1), len(rows) - 1}
+    step = max(1, (len(rows) - 1) // (max_samples - 1))
+    for i in range(0, len(rows), step):
+        idxs.add(i)
+        if len(idxs) >= max_samples:
+            break
+    return [rows[i] for i in sorted(idxs) if 0 <= i < len(rows)]
+
+
+def _identity_score(page_text: str, business_name: str, city: str) -> tuple[float, bool]:
+    """Score whether a historical snapshot appears to be the same business identity."""
+    text = (page_text or "").lower()
+    cleaned_name = re.sub(r"[^a-z0-9 ]+", " ", (business_name or "").lower())
+    cleaned_name = re.sub(r"\s+", " ", cleaned_name).strip()
+    if not cleaned_name:
+        return 0.0, False
+
+    tokens = [t for t in cleaned_name.split() if len(t) >= 4 and t not in _TOKEN_STOPWORDS]
+    phrase_hit = cleaned_name in text
+    token_hits = sum(1 for t in tokens if re.search(rf"\b{re.escape(t)}\b", text))
+    token_ratio = token_hits / max(1, len(tokens))
+    city_hit = bool(city and re.search(rf"\b{re.escape(city.lower())}\b", text))
+
+    score = 0.0
+    score += 0.7 if phrase_hit else 0.6 * token_ratio
+    if city_hit:
+        score += 0.2
+    if token_hits >= 2:
+        score += 0.1
+    score = min(score, 1.0)
+
+    owner_change_signal = any(marker in text for marker in _OWNER_CHANGE_MARKERS)
+    return score, owner_change_signal
 
 
 async def _ddg_search_with_retry(query: str, max_results: int = 5, attempts: int = 2) -> list[dict]:
@@ -216,4 +296,131 @@ async def check_review_presence(business_name: str, city: str, state: str = "OH"
             supports_eligibility=None,
             is_error=True,
             error_detail=f"Review search failed: {type(e).__name__}: {e}",
+        )
+
+
+async def check_wayback_history(business_name: str, city: str, website_url: str) -> SubAgentFinding:
+    """Check Wayback for earliest matching identity capture (not just earliest domain capture)."""
+    if not website_url:
+        return SubAgentFinding(
+            source="wayback_archive",
+            finding="No website available, so archive history could not be evaluated.",
+            supports_eligibility=None,
+        )
+
+    domain = _domain_from_website(website_url)
+    if not domain:
+        return SubAgentFinding(
+            source="wayback_archive",
+            url=website_url,
+            finding="Website URL format prevented archive lookup.",
+            supports_eligibility=None,
+            is_error=True,
+            error_detail=f"Invalid website URL: {website_url}",
+        )
+
+    params = [
+        ("url", f"{domain}/*"),
+        ("output", "json"),
+        ("fl", "timestamp,original,statuscode,mimetype,digest"),
+        ("filter", "statuscode:200"),
+        ("filter", "mimetype:text/html"),
+        ("collapse", "digest"),
+        ("from", "1996"),
+        ("limit", "200"),
+    ]
+
+    try:
+        async with httpx.AsyncClient(headers=_HEADERS, timeout=_WAYBACK_TIMEOUT, follow_redirects=True) as client:
+            cdx_resp = await client.get(_WAYBACK_CDX_URL, params=params)
+            cdx_resp.raise_for_status()
+            payload = cdx_resp.json()
+
+            if not isinstance(payload, list) or len(payload) <= 1:
+                return SubAgentFinding(
+                    source="wayback_archive",
+                    url=f"{_WAYBACK_VIEW_BASE}/*/{domain}",
+                    finding=f"Wayback archive has no HTML captures for {domain} in the sampled index.",
+                    supports_eligibility=None,
+                )
+
+            rows = [r for r in payload[1:] if isinstance(r, list) and len(r) >= 2]
+            rows.sort(key=lambda r: r[0])
+            earliest_capture_iso = _wayback_iso_date(rows[0][0]) or "unknown"
+            sampled = _sample_wayback_rows(rows)
+
+            sampled_results = []
+            for row in sampled:
+                ts = row[0]
+                original = row[1]
+                iso_date = _wayback_iso_date(ts)
+                if not iso_date:
+                    continue
+                snap_url = f"{_WAYBACK_VIEW_BASE}/{ts}id_/{original}"
+                try:
+                    snap_resp = await client.get(snap_url)
+                    if snap_resp.status_code >= 400:
+                        continue
+                    text = _extract_text(snap_resp.text, max_chars=7000)
+                    if len(text) < 40:
+                        continue
+                except Exception:
+                    continue
+                score, owner_change = _identity_score(text, business_name, city)
+                sampled_results.append(
+                    {"date": iso_date, "url": snap_url, "score": score, "owner_change": owner_change, "matched": score >= 0.65}
+                )
+
+            if not sampled_results:
+                return SubAgentFinding(
+                    source="wayback_archive",
+                    url=f"{_WAYBACK_VIEW_BASE}/*/{domain}",
+                    finding=f"Wayback has captures for {domain} since {earliest_capture_iso}, but sampled snapshots were not parseable.",
+                    supports_eligibility=None,
+                )
+
+            sampled_results.sort(key=lambda r: r["date"])
+            matches = [r for r in sampled_results if r["matched"]]
+            if not matches:
+                return SubAgentFinding(
+                    source="wayback_archive",
+                    url=f"{_WAYBACK_VIEW_BASE}/*/{domain}",
+                    finding=(
+                        f"Wayback captures exist for {domain} since {earliest_capture_iso}, but no sampled snapshot "
+                        "confidently matched the current business identity (possible domain reuse/owner change)."
+                    ),
+                    supports_eligibility=None,
+                )
+
+            first_match = matches[0]
+            post_match = [r for r in sampled_results if r["date"] >= first_match["date"]]
+            continuity = sum(1 for r in post_match if r["matched"]) / len(post_match) if post_match else 0.0
+            pre_match_nonmatch = sum(1 for r in sampled_results if r["date"] < first_match["date"] and not r["matched"])
+            ownership_flags = sum(1 for r in sampled_results if r["owner_change"])
+
+            caution = ""
+            if pre_match_nonmatch > 0:
+                caution = " Earlier captures did not match current identity."
+            if ownership_flags > 0:
+                caution += " Ownership-change wording appears in sampled archives."
+
+            return SubAgentFinding(
+                source="wayback_archive",
+                url=first_match["url"],
+                finding=(
+                    f"Wayback domain capture begins {earliest_capture_iso}. "
+                    f"Earliest matching business identity capture: {first_match['date']}. "
+                    f"Continuity score: {continuity:.2f} across {len(post_match)} sampled snapshots from {domain}.{caution}"
+                ),
+                supports_eligibility=True if continuity >= 0.6 else None,
+            )
+
+    except Exception as e:
+        return SubAgentFinding(
+            source="wayback_archive",
+            url=f"{_WAYBACK_VIEW_BASE}/*/{domain}",
+            finding="Wayback archive lookup was unavailable at time of verification.",
+            supports_eligibility=None,
+            is_error=True,
+            error_detail=f"Wayback lookup failed: {type(e).__name__}: {e}",
         )

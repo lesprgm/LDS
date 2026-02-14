@@ -1,5 +1,3 @@
-"""Tests for sanitized evidence-pack generation."""
-
 from pathlib import Path
 
 from extraction.schemas import SettlementRules

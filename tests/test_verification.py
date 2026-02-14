@@ -1,5 +1,3 @@
-"""Tests for the verification agent system."""
-
 import json
 from unittest.mock import AsyncMock, patch
 
@@ -7,7 +5,7 @@ import httpx
 import pytest
 
 from verification.schemas import SubAgentFinding, VerificationResult
-from verification.tools import check_business_website, _extract_text
+from verification.tools import check_business_website, check_wayback_history, _extract_text
 from verification.agent import verify_candidate, verify_candidates
 
 
@@ -52,6 +50,14 @@ class TestCheckBusinessWebsite:
         assert result.is_error is True
 
 
+class TestCheckWaybackHistory:
+    @pytest.mark.asyncio
+    async def test_no_website(self):
+        result = await check_wayback_history("Test Biz", "Wooster", "")
+        assert result.source == "wayback_archive"
+        assert "No website" in result.finding
+
+
 class TestVerifyCandidate:
     @pytest.mark.asyncio
     async def test_verify_candidate_parses_llm_json(self):
@@ -72,10 +78,12 @@ class TestVerifyCandidate:
         mock_llm.ainvoke.return_value = type("R", (), {"content": json.dumps({"verdict": "likely", "confidence": 70, "is_chain": False, "chain_reason": None, "reasoning": "ok"})})()
 
         with patch("verification.agent.check_business_website", new_callable=AsyncMock) as mock_web, \
+             patch("verification.agent.check_wayback_history", new_callable=AsyncMock) as mock_wayback, \
              patch("verification.agent.search_platform_presence", new_callable=AsyncMock) as mock_plat, \
              patch("verification.agent.search_general_context", new_callable=AsyncMock) as mock_gen, \
              patch("verification.agent.check_review_presence", new_callable=AsyncMock) as mock_rev:
             mock_web.return_value = SubAgentFinding(source="business_website", finding="ok")
+            mock_wayback.return_value = SubAgentFinding(source="wayback_archive", finding="ok")
             mock_plat.return_value = SubAgentFinding(source="platform_search", finding="ok")
             mock_gen.return_value = SubAgentFinding(source="general_search", finding="ok")
             mock_rev.return_value = SubAgentFinding(source="review_search", finding="ok")
@@ -95,10 +103,12 @@ class TestVerifyCandidates:
         candidates = [({"name": "A", "city": "Wooster"}, {"settlement_name": "S"})]
 
         with patch("verification.agent.check_business_website", new_callable=AsyncMock) as mock_web, \
+             patch("verification.agent.check_wayback_history", new_callable=AsyncMock) as mock_wayback, \
              patch("verification.agent.search_platform_presence", new_callable=AsyncMock) as mock_plat, \
              patch("verification.agent.search_general_context", new_callable=AsyncMock) as mock_gen, \
              patch("verification.agent.check_review_presence", new_callable=AsyncMock) as mock_rev:
             mock_web.return_value = SubAgentFinding(source="business_website", finding="ok")
+            mock_wayback.return_value = SubAgentFinding(source="wayback_archive", finding="ok")
             mock_plat.return_value = SubAgentFinding(source="platform_search", finding="ok")
             mock_gen.return_value = SubAgentFinding(source="general_search", finding="ok")
             mock_rev.return_value = SubAgentFinding(source="review_search", finding="ok")
