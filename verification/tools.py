@@ -239,13 +239,23 @@ async def search_platform_presence(business_name: str, city: str, settlement_con
     return SubAgentFinding(source="platform_search", finding=f"Platform search results:\n{combined[:2500]}", supports_eligibility=None)
 
 
-async def search_general_context(business_name: str, city: str, state: str = "OH") -> SubAgentFinding:
+async def search_general_context(business_name: str, city: str, state: str | None = None) -> SubAgentFinding:
     """Search for general info about the business (chain/franchise signals)."""
     try:
-        query = f'"{business_name}" {city} {state}'
+        parts = [f'"{business_name}"']
+        if city:
+            parts.append(city)
+        if state:
+            parts.append(state)
+        query = " ".join(parts)
         hits = await _ddg_search_with_retry(query, max_results=5)
         if not hits:
-            return SubAgentFinding(source="general_search", finding=f"No web results found for '{business_name}' in {city}, {state}", supports_eligibility=None)
+            location = ", ".join([p for p in [city, state] if p]) or "the provided location"
+            return SubAgentFinding(
+                source="general_search",
+                finding=f"No web results found for '{business_name}' in {location}",
+                supports_eligibility=None,
+            )
 
         results_text = [f"[{h.get('title','')}] {h.get('body','')} ({h.get('href','')})" for h in hits]
         combined = "\n".join(results_text)
@@ -269,13 +279,24 @@ async def search_general_context(business_name: str, city: str, state: str = "OH
         )
 
 
-async def check_review_presence(business_name: str, city: str, state: str = "OH") -> SubAgentFinding:
+async def check_review_presence(business_name: str, city: str, state: str | None = None) -> SubAgentFinding:
     """Search for review/listing presence to confirm business type/history."""
     try:
-        query = f'"{business_name}" {city} {state} yelp OR reviews OR "google reviews"'
+        parts = [f'"{business_name}"']
+        if city:
+            parts.append(city)
+        if state:
+            parts.append(state)
+        parts.extend(["yelp", "OR", "reviews", 'OR', '"google reviews"'])
+        query = " ".join(parts)
         hits = await _ddg_search_with_retry(query, max_results=4)
         if not hits:
-            return SubAgentFinding(source="review_search", finding=f"No review listings found for '{business_name}' in {city}", supports_eligibility=None)
+            location = ", ".join([p for p in [city, state] if p]) or "the provided location"
+            return SubAgentFinding(
+                source="review_search",
+                finding=f"No review listings found for '{business_name}' in {location}",
+                supports_eligibility=None,
+            )
 
         results_text = [f"[{h.get('title','')}] {h.get('body','')} ({h.get('href','')})" for h in hits]
         combined = "\n".join(results_text)

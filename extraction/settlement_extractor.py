@@ -22,7 +22,7 @@ Focus especially on:
 
 CRITICAL for smb_relevance scoring:
 - We are evaluating whether LOCAL SMALL BUSINESSES (restaurants, salons,
-  auto shops, dentists, retail stores in a small Ohio town) could be
+  auto shops, dentists, retail stores in a small town or local market) could be
   CLAIMANTS in this settlement.
 - "high" = settlement directly targets merchants/businesses as the harmed
   class (e.g., merchant fee overcharges, antitrust, data breaches

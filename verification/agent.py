@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from framework.fanout import gather_with_limit, map_with_limit
 from llm.client_factory import get_llm_client
@@ -34,7 +33,7 @@ SETTLEMENT CONTEXT:
 BUSINESS:
   Name: {biz_name}
   Category: {biz_category}
-  Address: {biz_address}, {biz_city}, OH
+  Address: {biz_location}
   Website: {biz_website}
 
 RESEARCH FINDINGS:
@@ -61,6 +60,17 @@ def _with_context(result: VerificationResult, findings: list[SubAgentFinding], c
     return result.copy(update=update)
 
 
+def _format_business_location(business: dict) -> str:
+    """Build a location string without assuming a specific state."""
+    parts = [
+        str(business.get("address", "")).strip(),
+        str(business.get("city", "")).strip(),
+        str(business.get("state", "")).strip(),
+    ]
+    compact = [part for part in parts if part]
+    return ", ".join(compact) if compact else "Unknown"
+
+
 async def verify_candidate(
     business: dict,
     settlement: dict,
@@ -69,6 +79,7 @@ async def verify_candidate(
     """Verify a single business × settlement candidate."""
     biz_name = business.get("name", "")
     biz_city = business.get("city", "")
+    biz_state = business.get("state", "") or settlement.get("business_state", "")
     biz_website = business.get("website") or ""
 
     settlement_name = settlement.get("settlement_name", "Unknown")
@@ -91,8 +102,8 @@ async def verify_candidate(
         check_business_website(biz_website, settlement_context),
         check_wayback_history(biz_name, biz_city, biz_website),
         search_platform_presence(biz_name, biz_city, settlement_context),
-        search_general_context(biz_name, biz_city),
-        check_review_presence(biz_name, biz_city),
+        search_general_context(biz_name, biz_city, biz_state),
+        check_review_presence(biz_name, biz_city, biz_state),
     ]
 
     try:
@@ -117,8 +128,7 @@ async def verify_candidate(
             exclusions=", ".join(settlement.get("exclusions", [])),
             biz_name=biz_name,
             biz_category=business.get("category", "Unknown"),
-            biz_address=business.get("address", ""),
-            biz_city=biz_city,
+            biz_location=_format_business_location(business),
             biz_website=biz_website or "None",
             findings_text=findings_text,
         )

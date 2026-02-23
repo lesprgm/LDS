@@ -1,4 +1,4 @@
-# Public Portfolio Slice: SMB Settlement Discovery Framework
+# Public Portfolio Slice: AI-Assisted Settlement Discovery Engine
 
 This folder is a **sanitized public subset** of a larger production-grade system.
 It is intended for recruiter and portfolio review, while keeping core product IP,
@@ -7,9 +7,10 @@ source integrations, and operations tooling private.
 ## What This Public Slice Demonstrates
 
 - Typed LLM extraction into structured settlement schemas (`extraction/`).
-- Multi-signal verification agent with web/tool fan-out + final verdict (`verification/`).
+- Deterministic-first, multi-signal verification agent with bounded web/tool fan-out + final verdict (`verification/`).
 - Concurrency helpers for controlled async execution (`framework/`).
 - Simplified evidence-pack generation pipeline (client/internal HTML variants) (`evidence/`).
+- Model-agnostic LLM client wiring (OpenRouter/OpenAI/Anthropic) with strict JSON output parsing (`llm/`).
 
 ## Why This Code Is Simplified
 
@@ -21,12 +22,13 @@ confidential implementation details.
 ## Architecture (Public Slice)
 
 This repo follows a layered architecture: deterministic orchestration around
-LLM-assisted reasoning.
+LLM-assisted reasoning. The LLM is used for extraction and final synthesis,
+while tool fan-out, error handling, and artifact rendering remain explicit code.
 
 | Layer | Purpose | Key Files |
 |---|---|---|
 | Config | Provider/model wiring through environment variables | `config/settings.py` |
-| LLM Interface | Standardized model client + strict JSON parsing helpers | `llm/client_factory.py`, `llm/structured_json.py` |
+| LLM Interface | Standardized model client + strict JSON parsing helpers (LangChain provider clients used as thin adapters) | `llm/client_factory.py`, `llm/structured_json.py` |
 | Extraction | Convert unstructured settlement text into typed rules | `extraction/schemas.py`, `extraction/settlement_extractor.py` |
 | Verification | Gather multi-source signals, then issue one eligibility verdict | `verification/tools.py`, `verification/agent.py`, `verification/schemas.py` |
 | Concurrency Runtime | Controlled async fan-out/fan-in primitives | `framework/fanout.py` |
@@ -38,6 +40,7 @@ LLM-assisted reasoning.
 2. A candidate business and settlement are passed to the verification agent.
 3. Five research tools run concurrently (website, Wayback archive continuity, platform, general context, reviews).
    - Wayback check uses `web.archive.org/cdx/search/cdx` and treats earliest matching business-identity capture as stronger than oldest domain capture.
+   - General/review search uses the provided business location fields (no Ohio-only hardcoding).
 4. Tool findings are consolidated into one reasoning prompt.
 5. The LLM returns a typed `VerificationResult` through schema-validated JSON parsing.
 6. Evidence-pack generation produces two artifacts:
@@ -63,6 +66,7 @@ flowchart LR
 - Fail-soft behavior: tool failures are captured as findings instead of crashing flow.
 - Explicit concurrency limits: async fan-out uses bounded helpers, not unbounded gather.
 - Temporal identity safeguards: archive checks account for possible domain reuse/owner changes.
+- Model portability: provider switch lives in config, not business logic.
 - Separation of concerns: search/tooling, LLM reasoning, and rendering are decoupled.
 - Dual-audience output: same core signals feed both client-safe and internal artifacts.
 
@@ -81,6 +85,10 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 ```
+
+If you use OpenRouter and do not have a public website yet, leave
+`OPENROUTER_HTTP_REFERER` blank in `.env`. The client only sends those headers
+when you explicitly set them.
 
 Run tests:
 
