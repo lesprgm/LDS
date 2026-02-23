@@ -1,0 +1,43 @@
+schema_version: "1.0.0"
+
+skills:
+  - skill_id: skill_business_website_signal
+    version: "1.0.0"
+    description: "Collect business website text as a primary eligibility signal."
+    kind: evidence
+    enabled: true
+    priority: 100
+    triggers: ["default", "website"]
+    produces_facts: ["F-01"]
+    allowed_tools: ["tool_check_business_website"]
+    timeout_seconds: 20
+    budget_profile: base
+    read_only: true
+
+  - skill_id: skill_wayback_continuity
+    version: "1.0.0"
+    description: "Check historical domain continuity and identity matching in Wayback."
+    kind: evidence
+    enabled: true
+    priority: 95
+    triggers: ["default", "temporal"]
+    produces_facts: ["F-04", "F-09"]
+    allowed_tools: ["tool_check_wayback_history"]
+    timeout_seconds: 25
+    budget_profile: base
+    read_only: true
+
+tools:
+  tool_check_business_website:
+    tool_id: tool_check_business_website
+    module_path: verification.tools
+    callable_name: check_business_website
+    source_name: business_website
+    side_effect_level: read_only
+
+  tool_check_wayback_history:
+    tool_id: tool_check_wayback_history
+    module_path: verification.tools
+    callable_name: check_wayback_history
+    source_name: wayback_archive
+    side_effect_level: read_only

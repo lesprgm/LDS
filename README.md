@@ -32,6 +32,7 @@ while tool fan-out, error handling, and artifact rendering remain explicit code.
 | Extraction | Convert unstructured settlement text into typed rules | `extraction/schemas.py`, `extraction/settlement_extractor.py` |
 | Verification | Gather multi-source signals, then issue one eligibility verdict | `verification/tools.py`, `verification/agent.py`, `verification/schemas.py` |
 | Concurrency Runtime | Controlled async fan-out/fan-in primitives | `framework/fanout.py` |
+| Skills Metadata (Demo) | Declarative skill/tool organization pattern used by the private agent runtime (sanitized examples) | `skills/registry.yaml`, `skills/*/SKILL.md`, `skills/*/toolset.yaml` |
 | Evidence Output | Render client/internal HTML evidence packs | `evidence/generator.py`, `evidence/demo.py` |
 
 ## End-to-End Flow
@@ -67,6 +68,7 @@ flowchart LR
 - Explicit concurrency limits: async fan-out uses bounded helpers, not unbounded gather.
 - Temporal identity safeguards: archive checks account for possible domain reuse/owner changes.
 - Model portability: provider switch lives in config, not business logic.
+- Agent organization pattern is visible via a sanitized skills registry + per-skill metadata.
 - Separation of concerns: search/tooling, LLM reasoning, and rendering are decoupled.
 - Dual-audience output: same core signals feed both client-safe and internal artifacts.
 
@@ -116,8 +118,22 @@ Expected outputs:
 - `extraction/` schema + extraction orchestration.
 - `verification/` verification tools, schemas, and agent orchestration.
 - `framework/` shared fan-out/concurrency helpers.
+- `skills/` sanitized metadata examples showing how the private runtime organizes skills and tool bindings.
 - `evidence/` simplified evidence-pack renderer and demo runner.
 - `tests/` unit tests for extraction, verification, and evidence generation.
+
+## Skills Metadata Example (Public)
+
+The `skills/` folder is included to show the **declarative skill registry pattern**
+used in the larger system:
+
+- `skills/registry.yaml` acts as the source of truth for skill and tool metadata.
+- Each skill has a folder with `SKILL.md` (human-readable purpose/safety notes).
+- `toolset.yaml` shows the tool bindings the skill is allowed to use.
+
+This public slice does **not** include the full production router/policy runtime for
+executing these skills; that logic remains private. The goal is to expose the
+architecture pattern, not the proprietary orchestration behavior.
 
 ## Notes for Reviewers
 
